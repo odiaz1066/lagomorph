@@ -1,22 +1,16 @@
-# main/lagomorph
+# Lagomorph
 
-Reinforcement Learning framework focused on research. Based on Pytorch Lightning, Stable Baselines and RL-Zoo.
+Reinforcement Learning framework focused on quick prototyping of DQN models. Based on CleanRL, Pytorch, Gymnasium and Unity ML Agents.
+It's based around the idea of modifying the train files directly, making one for each kind of experiment.
+It's basically a stripped down fork of CleanRL, leaving only those files related to DQN.
 
 ## Getting Started
 
-Download links:
-
-SSH clone URL: ssh://git@git.jetbrains.space/odiaz1066/main/lagomorph.git
-
-HTTPS clone URL: https://git.jetbrains.space/odiaz1066/main/lagomorph.git
-
-
-
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
+This framework will be created for execution in both Google Colab and Azure Machine Learning, but it should work on any Python <=3.10 environment.
 
 ## Prerequisites
 
-What things you need to install the software and how to install them.
+Python <= 3.10
 
 ```
 Examples
