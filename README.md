@@ -12,6 +12,13 @@ This framework will be created for execution in both Google Colab and Azure Mach
 
 Python <= 3.10
 
+To train on Atari environments, the ffmpeg package is needed. It can be installed by executing (May require sudo permissions):
+```
+apt-get update
+apt-get install ffmpeg
+```
+The libgl1 package may also be used instead if you want to save on ~200 MB of storage.
+
 ```
 Examples
 ```
