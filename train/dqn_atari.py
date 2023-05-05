@@ -20,6 +20,8 @@ from stable_baselines3.common.atari_wrappers import (
 )
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+from typing import Callable
+from dotenv import load_dotenv
 
 
 def parse_args():
@@ -35,7 +37,7 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="cleanRL",
+    parser.add_argument("--wandb-project-name", type=str, default="lagomorph",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -133,6 +135,39 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
+def evaluate(
+    model_path: str,
+    make_env: Callable,
+    env_id: str,
+    eval_episodes: int,
+    run_name: str,
+    Model: torch.nn.Module,
+    device: torch.device = torch.device("cpu"),
+    epsilon: float = 0.05,
+    capture_video: bool = True,
+):
+    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
+    model = Model(envs).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+
+    obs, _ = envs.reset()
+    episodic_returns = []
+    while len(episodic_returns) < eval_episodes:
+        if random.random() < epsilon:
+            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+        else:
+            q_values = model(torch.Tensor(obs).to(device))
+            actions = torch.argmax(q_values, dim=1).cpu().numpy()
+        next_obs, _, _, _, infos = envs.step(actions)
+        if "final_info" in infos:
+            for info in infos["final_info"]:
+                if "episode" in info:
+                    print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
+                    episodic_returns += [info["episode"]["r"]]
+        obs = next_obs
+
+    return episodic_returns
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -145,6 +180,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 """
         )
     args = parse_args()
+    load_dotenv()
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
@@ -260,7 +296,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(q_network.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.dqn_eval import evaluate
+        if args.track:
+            artifact = wandb.Artifact("final_model", "model")
+            artifact.add_file(model_path)
+            wandb.log_artifact(artifact)
 
         episodic_returns = evaluate(
             model_path,
@@ -276,6 +315,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
 
         if args.upload_model:
+            #TODO: Currently gives an error. *Maybe* I'll get around to fixing it once everything else works correctly.
             from cleanrl_utils.huggingface import push_to_hub
 
             repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"

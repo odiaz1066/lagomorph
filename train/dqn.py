@@ -293,7 +293,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
 
         if args.upload_model:
-            #Currently gives an error. *Maybe* I'll get around to fixing it once everything else works correctly.
+            #TODO: Currently gives an error. *Maybe* I'll get around to fixing it once everything else works correctly.
             from cleanrl_utils.huggingface import push_to_hub
 
             repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
