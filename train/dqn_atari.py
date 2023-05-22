@@ -297,7 +297,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         torch.save(q_network.state_dict(), model_path)
         print(f"model saved to {model_path}")
         if args.track:
-            artifact = wandb.Artifact("final_model", "model")
+            artifact = wandb.Artifact(f"{args.exp_name}_model", "model")
             artifact.add_file(model_path)
             wandb.log_artifact(artifact)
 
