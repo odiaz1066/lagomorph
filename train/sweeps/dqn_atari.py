@@ -22,6 +22,27 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from typing import Callable
 from dotenv import load_dotenv
+import wandb
+
+load_dotenv()
+
+sweep_config = {
+    "name": os.getenv("SWEEP_NAME"),
+    "method": "bayes",
+    "metric": {"name": "eval_reward", "goal": "maximize"},
+    "parameters": {
+        "learning_rate": {"min": 1e-5, "max": 1e-2},
+        "batch_size": {"min": 32, "max": 512},
+        "gamma": {"min": 0.5, "max": 0.99},
+        "tau": {"min": 0.001, "max": 1.},
+    }
+}
+
+sweep_id = wandb.sweep(
+    sweep=sweep_config,
+    project=os.getenv("WANDB_PROJECT"),
+)
+print(f"Wandb Sweep ID: {sweep_id}")
 
 
 def parse_args():
@@ -182,18 +203,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     args = parse_args()
     load_dotenv()
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-    if args.track:
-        import wandb
-
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            sync_tensorboard=True,
-            config=vars(args),
-            name=run_name,
-            monitor_gym=True,
-            save_code=True,
-        )
+    wandb.init(sync_tensorboard=True,)
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -296,10 +306,6 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(q_network.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        if args.track:
-            artifact = wandb.Artifact(f"{args.exp_name}_model", "model")
-            artifact.add_file(model_path)
-            wandb.log_artifact(artifact)
 
         episodic_returns = evaluate(
             model_path,

@@ -1,4 +1,4 @@
-# docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/dqn/#dqnpy
+# docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/dqn/#dqn_ataripy
 import argparse
 import os
 import random
@@ -11,31 +11,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from stable_baselines3.common.atari_wrappers import (
+    ClipRewardEnv,
+    EpisodicLifeEnv,
+    FireResetEnv,
+    MaxAndSkipEnv,
+    NoopResetEnv,
+)
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from typing import Callable
 from dotenv import load_dotenv
-import wandb
 
-load_dotenv()
-
-sweep_config = {
-    "name": os.getenv("SWEEP_NAME"),
-    "method": "bayes",
-    "metric": {"name": "eval_reward", "goal": "maximize"},
-    "parameters": {
-        "learning_rate": {"min": 1e-5, "max": 1e-2},
-        "batch_size": {"min": 32, "max": 512},
-        "gamma": {"min": 0.5, "max": 0.99},
-        "tau": {"min": 0.001, "max": 1.},
-    }
-}
-
-sweep_id = wandb.sweep(
-    sweep=sweep_config,
-    project=os.getenv("WANDB_PROJECT"),
-)
-print(f"Wandb Sweep ID: {sweep_id}")
 
 def parse_args():
     # fmt: off
@@ -64,33 +51,33 @@ def parse_args():
         help="the user or org name of the model repository from the Hugging Face Hub")
 
     # Algorithm specific arguments
-    parser.add_argument("--env-id", type=str, default="CartPole-v1",
+    parser.add_argument("--env-id", type=str, default="MiniWorld-MazeS3Fast-v0",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=50000,
+    parser.add_argument("--total-timesteps", type=int, default=10000000,
         help="total timesteps of the experiments")
-    parser.add_argument("--learning-rate", type=float, default=2.5e-4,
+    parser.add_argument("--learning-rate", type=float, default=1e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=10000,
+    parser.add_argument("--buffer-size", type=int, default=1000000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
     parser.add_argument("--tau", type=float, default=1.,
         help="the target network update rate")
-    parser.add_argument("--target-network-frequency", type=int, default=500,
+    parser.add_argument("--target-network-frequency", type=int, default=1000,
         help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=128,
+    parser.add_argument("--batch-size", type=int, default=32,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
         help="the starting epsilon for exploration")
-    parser.add_argument("--end-e", type=float, default=0.05,
+    parser.add_argument("--end-e", type=float, default=0.01,
         help="the ending epsilon for exploration")
-    parser.add_argument("--exploration-fraction", type=float, default=0.5,
+    parser.add_argument("--exploration-fraction", type=float, default=0.10,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=10000,
+    parser.add_argument("--learning-starts", type=int, default=80000,
         help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=10,
+    parser.add_argument("--train-frequency", type=int, default=4,
         help="the frequency of training")
     args = parser.parse_args()
     # fmt: on
@@ -107,6 +94,13 @@ def make_env(env_id, seed, idx, capture_video, run_name):
         else:
             env = gym.make(env_id)
         env = gym.wrappers.RecordEpisodeStatistics(env)
+        #env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        #env = EpisodicLifeEnv(env)
+        env = ClipRewardEnv(env)
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayScaleObservation(env)
+        env = gym.wrappers.FrameStack(env, 4)
         env.action_space.seed(seed)
 
         return env
@@ -119,15 +113,20 @@ class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+            nn.Conv2d(4, 32, 8, stride=4),
             nn.ReLU(),
-            nn.Linear(120, 84),
+            nn.Conv2d(32, 64, 4, stride=2),
             nn.ReLU(),
-            nn.Linear(84, env.single_action_space.n),
+            nn.Conv2d(64, 64, 3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(3136, 512),
+            nn.ReLU(),
+            nn.Linear(512, env.single_action_space.n),
         )
 
     def forward(self, x):
-        return self.network(x)
+        return self.network(x / 255.0)
 
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
@@ -143,7 +142,7 @@ def evaluate(
     Model: torch.nn.Module,
     device: torch.device = torch.device("cpu"),
     epsilon: float = 0.05,
-    capture_video: bool = False,
+    capture_video: bool = True,
 ):
     envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
     model = Model(envs).to(device)
@@ -164,24 +163,35 @@ def evaluate(
                 if "episode" in info:
                     print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
                     episodic_returns += [info["episode"]["r"]]
-                    wandb.log({"eval_reward": info["episode"]["r"]})
         obs = next_obs
 
     return episodic_returns
 
-def main():
+if __name__ == "__main__":
     import stable_baselines3 as sb3
 
     if sb3.__version__ < "2.0":
         raise ValueError(
             """Ongoing migration: run the following command to install the new dependencies:
 
-poetry run pip install "stable_baselines3==2.0.0a1"
+poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-license]==0.28.1"  "ale-py==0.8.1" 
 """
         )
     args = parse_args()
+    load_dotenv()
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-    wandb.init(sync_tensorboard=True)
+    if args.track:
+        import wandb
+
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            sync_tensorboard=True,
+            config=vars(args),
+            name=run_name,
+            monitor_gym=True,
+            save_code=True,
+        )
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -203,7 +213,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
     q_network = QNetwork(envs).to(device)
-    optimizer = optim.Adam(q_network.parameters(), lr=wandb.config.learning_rate)
+    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
@@ -212,6 +222,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         envs.single_observation_space,
         envs.single_action_space,
         device,
+        optimize_memory_usage=True,
         handle_timeout_termination=False,
     )
     start_time = time.time()
@@ -254,10 +265,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
-                data = rb.sample(wandb.config.batch_size)
+                data = rb.sample(args.batch_size)
                 with torch.no_grad():
                     target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + wandb.config.gamma * target_max * (1 - data.dones.flatten())
+                    td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
                 old_val = q_network(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
@@ -276,27 +287,38 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step % args.target_network_frequency == 0:
                 for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
                     target_network_param.data.copy_(
-                        wandb.config.tau * q_network_param.data + (1.0 - wandb.config.tau) * target_network_param.data
+                        args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
 
-    model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
-    torch.save(q_network.state_dict(), model_path)
-    print(f"model saved to {model_path}")
+    if args.save_model:
+        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+        torch.save(q_network.state_dict(), model_path)
+        print(f"model saved to {model_path}")
+        if args.track:
+            artifact = wandb.Artifact(f"{args.exp_name}_model", "model")
+            artifact.add_file(model_path)
+            wandb.log_artifact(artifact)
 
-    episodic_returns = evaluate(
-        model_path,
-        make_env,
-        args.env_id,
-        eval_episodes=10,
-        run_name=f"{run_name}-eval",
-        Model=QNetwork,
-        device=device,
-        epsilon=0.05,
-    )
-    for idx, episodic_return in enumerate(episodic_returns):
-        writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        episodic_returns = evaluate(
+            model_path,
+            make_env,
+            args.env_id,
+            eval_episodes=10,
+            run_name=f"{run_name}-eval",
+            Model=QNetwork,
+            device=device,
+            epsilon=0.05,
+        )
+        for idx, episodic_return in enumerate(episodic_returns):
+            writer.add_scalar("eval/episodic_return", episodic_return, idx)
+
+        if args.upload_model:
+            #TODO: Currently gives an error. *Maybe* I'll get around to fixing it once everything else works correctly.
+            from cleanrl_utils.huggingface import push_to_hub
+
+            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
+            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
+            push_to_hub(args, episodic_returns, repo_id, "DQN", f"runs/{run_name}", f"videos/{run_name}-eval")
 
     envs.close()
     writer.close()
-
-wandb.agent(sweep_id, function=main, count=100)
