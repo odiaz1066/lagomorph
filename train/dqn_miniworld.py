@@ -6,6 +6,7 @@ import time
 from distutils.util import strtobool
 
 import gymnasium as gym
+import miniworld
 import numpy as np
 import torch
 import torch.nn as nn
@@ -59,7 +60,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=1000000,
+    parser.add_argument("--buffer-size", type=int, default=100000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
