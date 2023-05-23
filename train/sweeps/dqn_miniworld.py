@@ -36,6 +36,11 @@ sweep_config = {
         "batch_size": {"min": 32, "max": 512},
         "gamma": {"min": 0.5, "max": 0.99},
         "tau": {"min": 0.001, "max": 1.},
+        "target_network_frequency": {"min": 100, "max": 2000},
+        "start_e": {"min": 0.5, "max": 1.},
+        "end_e": {"min": 0.01, "max": 0.1},
+        "exploration_fraction": {"min": 0.01, "max": 0.5},
+        "train_frequency": {"min": 1, "max": 10},
     }
 }
 
@@ -74,7 +79,7 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="MiniWorld-MazeS3Fast-v0",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=10000000,
+    parser.add_argument("--total-timesteps", type=int, default=100000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=1e-4,
         help="the learning rate of the optimizer")
@@ -163,7 +168,7 @@ def evaluate(
     Model: torch.nn.Module,
     device: torch.device = torch.device("cpu"),
     epsilon: float = 0.05,
-    capture_video: bool = True,
+    capture_video: bool = False,
 ):
     envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
     model = Model(envs).to(device)
@@ -240,7 +245,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     obs, _ = envs.reset(seed=args.seed)
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
-        epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
+        epsilon = linear_schedule(wandb.config.start_e, wandb.config.end_e, wandb.config.exploration_fraction * args.total_timesteps, global_step)
         if random.random() < epsilon:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
@@ -273,7 +278,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
-            if global_step % args.train_frequency == 0:
+            if global_step % wandb.config.train_frequency == 0:
                 data = rb.sample(wandb.config.batch_size)
                 with torch.no_grad():
                     target_max, _ = target_network(data.next_observations).max(dim=1)
@@ -293,7 +298,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 optimizer.step()
 
             # update target network
-            if global_step % args.target_network_frequency == 0:
+            if global_step % wandb.config.target_network_frequency == 0:
                 for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
                     target_network_param.data.copy_(
                         wandb.config.tau * q_network_param.data + (1.0 - wandb.config.tau) * target_network_param.data
