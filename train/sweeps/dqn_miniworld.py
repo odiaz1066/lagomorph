@@ -189,6 +189,7 @@ def evaluate(
                 if "episode" in info:
                     print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
                     episodic_returns += [info["episode"]["r"]]
+                    wandb.log({"eval_reward": info["episode"]["r"]})
         obs = next_obs
 
     return episodic_returns
