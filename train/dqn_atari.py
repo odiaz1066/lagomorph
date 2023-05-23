@@ -79,6 +79,12 @@ def parse_args():
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=4,
         help="the frequency of training")
+    parser.add_argument("--checkpoint", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="whether to checkpoint the model")
+    parser.add_argument("--checkpoint-frequency", type=int, default=100000,
+        help="the frequency of saving checkpoint")
+    parser.add_argument("--resume", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="resume training from the last checkpoint")
     args = parser.parse_args()
     # fmt: on
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
@@ -229,6 +235,11 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     )
     start_time = time.time()
 
+    if args.resume:
+        checkpoint_path = f"runs/{run_name}/{args.exp_name}.checkpoint.pth"
+        q_network.load_state_dict(torch.load(checkpoint_path))
+        print(f"checkpoint loaded from {checkpoint_path}")
+
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
     for global_step in range(args.total_timesteps):
@@ -291,6 +302,18 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     target_network_param.data.copy_(
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
+            
+            # save checkpoint
+            if (args.checkpoint):
+                if global_step % args.checkpoint_frequency == 0:
+                    checkpoint_path = f"runs/{run_name}/{args.exp_name}.checkpoint.pth"
+                    torch.save(q_network.state_dict(), checkpoint_path)
+                    print(f"checkpoint saved to {checkpoint_path}")
+                    if args.track:
+                        artifact = wandb.Artifact(f"{args.exp_name}_checkpoint", "checkpoint")
+                        artifact.add_file(checkpoint_path)
+                        wandb.log_artifact(artifact)
+
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
