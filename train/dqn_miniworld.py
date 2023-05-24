@@ -172,6 +172,8 @@ def evaluate(
                 if "episode" in info:
                     print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
                     episodic_returns += [info["episode"]["r"]]
+        if next_obs.shape[0] == 1:
+            next_obs = next_obs[0]
         obs = next_obs
 
     return episodic_returns
