@@ -108,7 +108,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
         #env = EpisodicLifeEnv(env)
         env = ClipRewardEnv(env)
         env = gym.wrappers.ResizeObservation(env, (84, 84))
-        #env = gym.wrappers.GrayScaleObservation(env)
+        env = gym.wrappers.GrayScaleObservation(env)
         env = gym.wrappers.FrameStack(env, 4)
         env.action_space.seed(seed)
 
@@ -172,7 +172,7 @@ def evaluate(
                 if "episode" in info:
                     print(f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}")
                     episodic_returns += [info["episode"]["r"]]
-                    
+
         obs = next_obs
 
     return episodic_returns
