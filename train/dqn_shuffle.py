@@ -53,7 +53,9 @@ def parse_args():
         help="the user or org name of the model repository from the Hugging Face Hub")
 
     # Algorithm specific arguments
-    parser.add_argument("--env-id", type=str, default="BreakoutNoFrameskip-v4",
+    parser.add_argument("--env-1-id", type=str, default="BreakoutNoFrameskip-v4",
+        help="the id of the environment")
+    parser.add_argument("--env-2-id", type=str, default="PongNoFrameskip-v4",
         help="the id of the environment")
     parser.add_argument("--total-timesteps", type=int, default=10000000,
         help="total timesteps of the experiments")
@@ -194,8 +196,8 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 """
         )
     args = parse_args()
-    load_dotenv()
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    #load_dotenv()
+    run_name = f"{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -223,9 +225,17 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+    shuffle_envs = []
+    envs0 = gym.vector.SyncVectorEnv(
+        [make_env(args.env_1_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
     )
+    envs1 = gym.vector.SyncVectorEnv(
+        [make_env(args.env_2_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+    )
+    shuffle_envs.append(envs0)
+    shuffle_envs.append(envs1)
+    envs = shuffle_envs[0]
+    env_index = 0
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
     q_network = QNetwork(envs).to(device)
@@ -250,6 +260,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
+    shuffle_envs[1].reset(seed=args.seed)
     for global_step in range(args.initial_steps, args.total_timesteps):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
@@ -272,6 +283,8 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                 writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                 writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
                 writer.add_scalar("charts/epsilon", epsilon, global_step)
+            env_index = (env_index + 1) % 2
+            envs = shuffle_envs[env_index]
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
@@ -335,7 +348,7 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
         episodic_returns = evaluate(
             model_path,
             make_env,
-            args.env_id,
+            args.env_1_id,
             eval_episodes=10,
             run_name=f"{run_name}-eval",
             Model=QNetwork,

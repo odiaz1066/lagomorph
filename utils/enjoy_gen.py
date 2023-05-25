@@ -60,6 +60,7 @@ class VisualQNetwork(nn.Module):
             nn.Flatten(),
             nn.Linear(3136, 512),
             nn.ReLU(),
+            #nn.Linear(512, env.single_action_space.n),
             nn.Linear(512, env.single_action_space.n),
         )
 
