@@ -294,7 +294,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
         if args.upload_model:
             #TODO: Currently gives an error. *Maybe* I'll get around to fixing it once everything else works correctly.
-            from cleanrl_utils.huggingface import push_to_hub
+            from utils.huggingface import push_to_hub
 
             repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
             repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
