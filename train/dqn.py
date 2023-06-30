@@ -15,7 +15,8 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from typing import Callable
 from dotenv import load_dotenv
-
+import sys
+sys.path.append(".")
 
 def parse_args():
     # fmt: off
